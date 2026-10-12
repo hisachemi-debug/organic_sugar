@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>糖類パズル：グリコシド・ビルダー</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@600;800;900&family=Noto+Sans+JP:wght@500;700;900&display=swap');
+    
+    body {
+      font-family: 'Noto Sans JP', sans-serif;
+      background-color: #f8fafc;
+      /* 洗練されたドット柄の背景（作業台っぽさ） */
+      background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+      background-size: 24px 24px;
+      color: #334155;
+      overflow-x: hidden;
+    }
+
+    /* ツールボタンの質感向上 */
+    .tool-btn {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+      background: linear-gradient(145deg, #ffffff, #f8fafc);
+      cursor: grab;
+    }
+    .tool-btn:active {
+      cursor: grabbing;
+    }
+    .tool-btn:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 10px 20px rgba(59, 130, 246, 0.1);
+    }
+    .tool-btn.active {
+      transform: scale(1.1) translateY(-2px);
+      border-color: #38bdf8;
+      background: linear-gradient(145deg, #f0f9ff, #e0f2fe);
+      box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.2), 0 10px 20px rgba(0, 0, 0, 0.05);
+      color: #0284c7 !important;
+    }
+
+    /* スロット（配置場所） */
+    .slot-hitbox {
+      fill: transparent;
+      cursor: pointer;
+      transition: fill 0.2s;
+    }
+    .slot-hitbox:hover {
+      fill: rgba(56, 189, 248, 0.15);
+    }
+    
+    /* 描画テキスト */
+    .part-text {
+      pointer-events: none;
+      font-family: 'Nunito', sans-serif;
+      font-weight: 800;
+      font-size: 26px;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.05); /* 文字をくっきりさせる */
+    }
+    .carbon-label {
+      font-family: 'Nunito', sans-serif;
+      font-weight: 800;
+      font-size: 16px;
+      fill: #94a3b8;
+      pointer-events: none;
+    }
+
+    /* 二糖ドッキング時のアニメーション */
+    .di-canvas {
+      transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .dock-left { transform: translateX(80px); }
+    .dock-right { transform: translateX(-80px); }
+    
+    .water-drop {
+      position: absolute;
+      opacity: 0;
+      font-family: 'Nunito', sans-serif;
+      font-weight: 900;
+      color: #0ea5e9;
+      font-size: 2.5rem;
+      text-shadow: 0 4px 15px rgba(14, 165, 233, 0.5);
+    }
+    @keyframes flyWater {
+      0% { opacity: 0; transform: translateY(20px) scale(0.8); }
+      20% { opacity: 1; transform: translateY(0px) scale(1.2); }
+      100% { opacity: 0; transform: translateY(-100px) scale(1); }
+    }
+    .water-drop.animate {
+      animation: flyWater 1.5s forwards;
+    }
+
+    /* グリコシド結合部の酸素。光るアニメーションを追加 */
+    @keyframes pulseGlow {
+      0%, 100% { box-shadow: 0 0 15px rgba(239, 68, 68, 0.2); }
+      50% { box-shadow: 0 0 25px rgba(239, 68, 68, 0.6); }
+    }
+    .oxygen-bridge {
+      position: absolute;
+      opacity: 0;
+      font-family: 'Nunito', sans-serif;
+      font-weight: 900;
+      color: #ef4444;
+      font-size: 3rem;
+      background: white;
+      border-radius: 50%;
+      padding: 0 10px;
+      transition: opacity 0.4s ease-in 0.6s;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    /* 結合部を繋ぐ線 */
+    .oxygen-bridge::before {
+      content: ''; position: absolute; right: 100%; width: 50px; height: 6px; background-color: #cbd5e1; border-radius: 3px;
+    }
+    .oxygen-bridge::after {
+      content: ''; position: absolute; left: 100%; width: 50px; height: 6px; background-color: #cbd5e1; border-radius: 3px;
+    }
+    .oxygen-bridge.animate { 
+      opacity: 1; 
+      animation: pulseGlow 2s infinite ease-in-out 1s; /* 出現後に光る */
+    }
+
+    /* UI表示切替用 */
+    .di-ui-control {
+      transition: opacity 0.4s, pointer-events 0.4s;
+    }
+
+    /* モーダル背景 */
+    #custom-modal {
+      backdrop-filter: blur(8px); /* ブラーを強めにして上質に */
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col items-center">
+
+  <header class="w-full bg-gradient-to-r from-cyan-600 to-blue-700 text-white p-5 md:p-6 shadow-md text-center z-20 relative border-b border-blue-400/30">
+    <h1 class="text-2xl md:text-3xl font-black tracking-wider drop-shadow-md">糖類パズル：グリコシド・ビルダー</h1>
+  </header>
+  
+  <main class="w-full max-w-6xl flex-grow flex flex-col p-3 md:p-6 mt-2 md:mt-4 relative z-10" id="app">
+    
+    <!-- タブ -->
+    <div class="flex justify-center mb-0 relative z-10 text-sm md:text-base px-2">
+      <button id="tab-mono" class="px-6 py-3 md:px-12 md:py-4 bg-white shadow-[0_-4px_10px_rgba(0,0,0,0.03)] rounded-t-2xl font-black border-t-4 border-cyan-400 text-cyan-600 mr-2 transition-all relative z-20">単糖を組み立てる</button>
+      <button id="tab-di" class="px-6 py-3 md:px-12 md:py-4 bg-slate-200/60 rounded-t-2xl font-bold border-t-4 border-transparent text-slate-500 hover:bg-slate-100 hover:text-cyan-500 transition-all">二糖をくっつける</button>
+    </div>
+    
+    <!-- ===================== 単糖モード ===================== -->
+    <div id="mode-mono" class="bg-white p-5 md:p-10 rounded-b-3xl rounded-tr-3xl shadow-xl shadow-slate-200/50 w-full relative border border-slate-100 backdrop-blur-sm">
+      
+      <!-- ミッションヘッダー -->
+      <div class="flex flex-col md:flex-row justify-between items-center mb-8 bg-gradient-to-br from-slate-50 to-slate-100/50 p-5 rounded-2xl border border-slate-200/60 shadow-sm">
+        <div class="text-base md:text-xl font-bold text-slate-600 mb-4 md:mb-0 flex flex-wrap items-center justify-center">
+          <span class="mr-2">🧩 ミッション：</span>
+          <select id="mono-select" class="mx-2 my-1 p-2 md:p-3 border border-cyan-200 rounded-xl text-cyan-700 font-black bg-white focus:outline-none focus:ring-4 focus:ring-cyan-500/20 shadow-sm cursor-pointer transition-all">
+            <option value="alpha_glucose">α-グルコース</option>
+            <option value="beta_glucose">β-グルコース</option>
+            <option value="alpha_galactose">α-ガラクトース</option>
+            <option value="beta_galactose">β-ガラクトース</option>
+            <option value="beta_fructose_furanose">β-フルクトース (五員環)</option>
+            <option value="beta_fructose_pyranose">β-フルクトース (六員環)</option>
+          </select>
+          <span class="ml-2">を作れ！</span>
+        </div>
+        <button id="btn-mono-check" class="bg-gradient-to-b from-emerald-400 to-emerald-500 hover:from-emerald-500 hover:to-emerald-600 text-white font-black py-3 px-12 rounded-full shadow-lg shadow-emerald-500/30 transform transition hover:-translate-y-1 active:translate-y-0 active:shadow-sm w-full md:w-auto text-lg border border-emerald-400">判定する</button>
+      </div>
+
+      <div class="text-center text-slate-500 font-bold mb-6 text-sm md:text-base">
+        下のボタンからパーツを選んで、丸い枠をタップして配置しよう
+      </div>
+
+      <!-- ツール選択 -->
+      <div class="flex justify-center gap-4 md:gap-8 mb-8">
+        <button class="tool-btn active w-20 h-20 md:w-28 md:h-28 rounded-2xl border-2 border-slate-100 flex flex-col items-center justify-center text-slate-400 font-black text-2xl md:text-3xl" data-tool="H">H</button>
+        <button class="tool-btn w-20 h-20 md:w-28 md:h-28 rounded-2xl border-2 border-slate-100 flex flex-col items-center justify-center text-pink-400 font-black text-2xl md:text-3xl" data-tool="OH">OH</button>
+        <button class="tool-btn w-20 h-20 md:w-28 md:h-28 rounded-2xl border-2 border-slate-100 flex flex-col items-center justify-center text-orange-400 font-black text-xl md:text-2xl" data-tool="CH₂OH">CH₂OH</button>
+        <button class="tool-btn w-20 h-20 md:w-28 md:h-28 rounded-2xl border-2 border-slate-100 flex flex-col items-center justify-center text-slate-400 font-bold text-sm md:text-lg bg-slate-50" data-tool="CLEAR">消す</button>
+      </div>
+
+      <!-- キャンバス -->
+      <div class="flex justify-center items-center bg-gradient-to-br from-slate-50/50 to-slate-100/50 rounded-3xl shadow-inner border border-slate-200/60 py-6 md:py-10 relative overflow-hidden">
+        <div id="mono-canvas" class="w-full max-w-[600px] aspect-[5/4]"></div>
+      </div>
+    </div>
+
+    <!-- ===================== 二糖モード ===================== -->
+    <div id="mode-di" class="bg-white p-5 md:p-10 rounded-b-3xl rounded-tl-3xl shadow-xl shadow-slate-200/50 w-full hidden relative border border-slate-100 backdrop-blur-sm">
+      
+      <div class="text-center mb-8 bg-gradient-to-br from-cyan-50 to-blue-50/50 p-5 rounded-2xl border border-cyan-200/50 shadow-inner">
+        <div class="text-base md:text-xl font-bold text-slate-700 flex flex-wrap items-center justify-center">
+          <span class="mr-2">🧬 ミッション：</span>
+          <select id="di-select" class="mx-2 my-1 p-2 md:p-3 border border-cyan-300 rounded-xl text-blue-700 font-black bg-white focus:outline-none focus:ring-4 focus:ring-cyan-500/20 shadow-sm cursor-pointer transition-all text-lg md:text-2xl">
+            <option value="maltose">マルトース (麦芽糖)</option>
+            <option value="cellobiose">セロビオース</option>
+            <option value="sucrose">スクロース (ショ糖)</option>
+            <option value="lactose">ラクトース (乳糖)</option>
+            <option value="trehalose">トレハロース</option>
+          </select>
+          <span class="ml-2">をドッキングせよ！</span>
+        </div>
+      </div>
+
+      <div class="flex flex-col md:flex-row w-full justify-between items-stretch gap-4 md:gap-0 mt-2">
+        <!-- 左の糖 -->
+        <div class="flex flex-col items-center w-full md:w-[42%] bg-slate-50/50 p-4 rounded-3xl border border-slate-200/80 shadow-sm relative z-20">
+          <select id="di-left" class="di-ui-control w-full mb-2 md:mb-4 p-3 border border-slate-200 rounded-xl font-bold text-slate-600 bg-white shadow-sm focus:ring-4 focus:ring-cyan-500/10 transition-all cursor-pointer text-sm md:text-base hover:border-slate-300">
+            <option value="">左の単糖をえらぶ...</option>
+            <option value="alpha_glucose">α-グルコース</option>
+            <option value="beta_glucose">β-グルコース</option>
+            <option value="alpha_galactose">α-ガラクトース</option>
+            <option value="beta_galactose">β-ガラクトース</option>
+            <option value="beta_fructose_furanose">β-フルクトース (五員環)</option>
+            <option value="beta_fructose_pyranose">β-フルクトース (六員環)</option>
+          </select>
+          <div id="di-left-canvas" class="di-canvas w-full aspect-[5/4] flex justify-center items-center"></div>
+        </div>
+        
+        <!-- アクション -->
+        <div class="w-full md:w-[16%] flex flex-col items-center justify-center py-6 md:py-0 relative z-10">
+          <button id="btn-dock" class="di-ui-control bg-gradient-to-b from-rose-400 to-rose-500 hover:from-rose-500 hover:to-rose-600 text-white font-black py-4 px-8 md:py-8 md:px-4 rounded-full shadow-lg shadow-rose-500/30 transform transition hover:-translate-y-1 active:translate-y-0 whitespace-nowrap z-30 flex md:flex-col items-center gap-2 md:gap-1 border border-rose-400 text-lg">
+            <span>ドッキング</span><span class="text-xs md:mt-1 font-bold bg-white/20 backdrop-blur-sm px-2 py-1 rounded-md text-white">脱水縮合</span>
+          </button>
+          <div id="dock-anim-layer" class="absolute inset-0 pointer-events-none flex flex-col items-center z-40"></div>
+        </div>
+        
+        <!-- 右の糖 -->
+        <div class="flex flex-col items-center w-full md:w-[42%] bg-slate-50/50 p-4 rounded-3xl border border-slate-200/80 shadow-sm relative z-20">
+          <select id="di-right" class="di-ui-control w-full mb-2 md:mb-4 p-3 border border-slate-200 rounded-xl font-bold text-slate-600 bg-white shadow-sm focus:ring-4 focus:ring-cyan-500/10 transition-all cursor-pointer text-sm md:text-base hover:border-slate-300">
+            <option value="">右の単糖をえらぶ...</option>
+            <option value="alpha_glucose">α-グルコース</option>
+            <option value="beta_glucose">β-グルコース</option>
+            <option value="alpha_galactose">α-ガラクトース</option>
+            <option value="beta_galactose">β-ガラクトース</option>
+            <option value="beta_fructose_furanose">β-フルクトース (五員環)</option>
+            <option value="beta_fructose_pyranose">β-フルクトース (六員環)</option>
+          </select>
+          <div id="di-right-canvas" class="di-canvas w-full aspect-[5/4] flex justify-center items-center"></div>
+          
+          <div class="flex gap-3 mt-4 w-full justify-center di-ui-control">
+            <button id="btn-flipx" class="flex-1 py-3 bg-white border border-slate-200 rounded-xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] hover:-translate-y-0.5 font-black text-slate-500 transition-all text-sm md:text-base hover:text-cyan-600">↔ 左右反転</button>
+            <button id="btn-flipy" class="flex-1 py-3 bg-white border border-slate-200 rounded-xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] hover:-translate-y-0.5 font-black text-slate-500 transition-all text-sm md:text-base hover:text-cyan-600">↕ 上下反転</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 完成後のリセットエリア -->
+      <div id="di-reset-area" class="w-full flex flex-col items-center justify-center mt-10 hidden transition-opacity duration-500 z-30 relative">
+        <h3 class="text-2xl md:text-4xl font-black text-cyan-600 mb-6 drop-shadow-sm" id="di-completed-name">完成！</h3>
+        <button id="btn-di-reset" class="bg-gradient-to-b from-slate-600 to-slate-700 hover:from-slate-700 hover:to-slate-800 text-white font-black py-4 px-12 rounded-full shadow-lg shadow-slate-500/30 transform transition hover:-translate-y-1 active:translate-y-0 text-xl border border-slate-600">別の二糖を作る</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- カスタムメッセージモーダル -->
+  <div id="custom-modal" class="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 hidden opacity-0 transition-all duration-300 px-4">
+    <div class="bg-white p-8 md:p-10 rounded-[2rem] shadow-2xl max-w-md w-full mx-auto text-center transform scale-95 transition-transform duration-300 flex flex-col items-center border border-white/50" id="custom-modal-content">
+      <div id="modal-icon" class="text-7xl mb-5 leading-none drop-shadow-sm">🤔</div>
+      <h3 class="text-2xl font-black text-slate-800 mb-4" id="modal-title">ヒント</h3>
+      <p class="text-slate-600 font-bold mb-8 whitespace-pre-wrap leading-relaxed text-lg" id="modal-message"></p>
+      
+      <!-- 次へボタン (正解時のみ表示) -->
+      <button id="btn-modal-next" class="hidden bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-white font-black py-4 px-10 rounded-full shadow-lg shadow-blue-500/30 transform transition hover:-translate-y-1 w-full text-xl mb-4">次へ</button>
+      
+      <!-- 閉じるボタン -->
+      <button id="modal-close" class="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-3 px-10 rounded-full shadow-sm transition w-full text-lg border border-slate-200">閉じる</button>
+    </div>
+  </div>
+
+  <script>
+    // ==========================================
+    // データ定義
+    // ==========================================
+    const monoData = {
+      'alpha_glucose': {
+        base: 'pyranose',
+        names: { p1: 'C1', p2: 'C2', p3: 'C3', p4: 'C4', p5: 'C5' },
+        ans: { p1t: 'H', p1b: 'OH', p2t: 'H', p2b: 'OH', p3t: 'OH', p3b: 'H', p4t: 'H', p4b: 'OH', p5t: 'CH₂OH', p5b: 'H' }
+      },
+      'beta_glucose': {
+        base: 'pyranose',
+        names: { p1: 'C1', p2: 'C2', p3: 'C3', p4: 'C4', p5: 'C5' },
+        ans: { p1t: 'OH', p1b: 'H', p2t: 'H', p2b: 'OH', p3t: 'OH', p3b: 'H', p4t: 'H', p4b: 'OH', p5t: 'CH₂OH', p5b: 'H' }
+      },
+      'alpha_galactose': {
+        base: 'pyranose',
+        names: { p1: 'C1', p2: 'C2', p3: 'C3', p4: 'C4', p5: 'C5' },
+        ans: { p1t: 'H', p1b: 'OH', p2t: 'H', p2b: 'OH', p3t: 'OH', p3b: 'H', p4t: 'OH', p4b: 'H', p5t: 'CH₂OH', p5b: 'H' }
+      },
+      'beta_galactose': {
+        base: 'pyranose',
+        names: { p1: 'C1', p2: 'C2', p3: 'C3', p4: 'C4', p5: 'C5' },
+        ans: { p1t: 'OH', p1b: 'H', p2t: 'H', p2b: 'OH', p3t: 'OH', p3b: 'H', p4t: 'OH', p4b: 'H', p5t: 'CH₂OH', p5b: 'H' }
+      },
+      'beta_fructose_furanose': {
+        base: 'furanose',
+        names: { p1: 'C2', p2: 'C3', p3: 'C4', p4: 'C5' },
+        ans: { p1t: 'OH', p1b: 'CH₂OH', p2t: 'OH', p2b: 'H', p3t: 'H', p3b: 'OH', p4t: 'CH₂OH', p4b: 'H' }
+      },
+      'beta_fructose_pyranose': {
+        base: 'pyranose',
+        names: { p1: 'C2', p2: 'C3', p3: 'C4', p4: 'C5' }, // C5にはHのみ (C6がない)
+        ans: { p1t: 'OH', p1b: 'CH₂OH', p2t: 'OH', p2b: 'H', p3t: 'H', p3b: 'OH', p4t: 'H', p4b: 'OH', p5t: 'H', p5b: 'H' }
+      }
+    };
+
+    const diMissions = {
+      'maltose': { reqLeft: 'alpha_glucose', reqRight: ['alpha_glucose', 'beta_glucose'], reqFx: false, reqFy: false, bindL: 'p1b', bindR: 'p4b', bridgeY: '62.5%', msg: 'マルトースはα-グルコース同士がC1とC4でそのまま繋がるぞ！\n（デンプンを分解するとできる水飴の成分だ）' },
+      'cellobiose': { reqLeft: 'beta_glucose', reqRight: ['beta_glucose'], reqFx: false, reqFy: true, bindL: 'p1t', bindR: 'p4b', bridgeY: '37.5%', msg: 'セロビオースはβ-グルコース同士。\n右側を上下反転させると結合部が一直線に並ぶぞ！\n（植物の細胞壁であるセルロースの構成成分だ）' },
+      'sucrose': { reqLeft: 'alpha_glucose', reqRight: ['beta_fructose_furanose'], reqFx: true, reqFy: false, bindL: 'p1b', bindR: 'p1b', bridgeY: '62.5%', msg: 'スクロースはα-グルコースとβ-フルクトース。\nフルクトースを左右反転してC2を向かい合わせるのがポイントだ！\n（普段料理で使うお砂糖のことだね）' },
+      'lactose': { reqLeft: 'beta_galactose', reqRight: ['alpha_glucose', 'beta_glucose'], reqFx: false, reqFy: true, bindL: 'p1t', bindR: 'p4b', bridgeY: '37.5%', msg: 'ラクトースはβ-ガラクトースとグルコース。\nセロビオースと同じく、右側のグルコースを上下反転させてβ(1→4)結合を作ろう！\n（牛乳の甘み成分だ！）' },
+      'trehalose': { reqLeft: 'alpha_glucose', reqRight: ['alpha_glucose'], reqFx: true, reqFy: false, bindL: 'p1b', bindR: 'p1b', bridgeY: '62.5%', msg: 'トレハロースはα-グルコース同士の1,1結合（非還元性）。\n右側を左右反転させて、C1同士を向かい合わせるんだ！\n（乾燥に強いキノコや酵母に含まれる不思議な糖だ）' }
+    };
+
+    // --- 座標定義 (500x400 の広々としたViewBox用) ---
+    // ピラノース (六員環)
+    const pyranosePos = [
+      { id:'p1', x:380, y:170, ty:90,  by:250, lx:415, ly:170 }, // C1 (フルクトース時はC2)
+      { id:'p2', x:330, y:270, ty:215, by:340, lx:355, ly:255 }, // C2
+      { id:'p3', x:170, y:270, ty:215, by:340, lx:145, ly:255 }, // C3
+      { id:'p4', x:120, y:170, ty:90,  by:250, lx:85,  ly:170 }, // C4
+      { id:'p5', x:190, y:100, ty:30,  by:150, lx:175, ly:75  }  // C5
+    ];
+    const pyranosePts = "380,170 330,270 170,270 120,170 190,100 310,100";
+    const pyranoseO = { x: 310, y: 100 };
+
+    // フラノース (五員環)
+    const furanosePos = [
+      { id:'p1', x:340, y:160, ty:90,  by:240, lx:375, ly:150 }, // C2
+      { id:'p2', x:300, y:260, ty:205, by:330, lx:325, ly:250 }, // C3
+      { id:'p3', x:200, y:260, ty:205, by:330, lx:175, ly:250 }, // C4
+      { id:'p4', x:160, y:160, ty:90,  by:230, lx:125, ly:150 }  // C5
+    ];
+    const furanosePts = "340,160 300,260 200,260 160,160 250,100";
+    const furanoseO = { x: 250, y: 100 };
+
+    const state = {
+      currentTool: 'H',
+      monoTarget: 'alpha_glucose',
+      monoSlots: {},
+      diMission: 'maltose',
+      diLeft: '',
+      diRight: '',
+      diFx: false,
+      diFy: false,
+      isDocked: false
+    };
+
+    // ==========================================
+    // カスタムモーダル UI
+    // ==========================================
+    function showMessage(title, message, type = 'hint', onNext = null, nextText = '次のお題へ') {
+      const modal = document.getElementById('custom-modal');
+      const content = document.getElementById('custom-modal-content');
+      const icon = document.getElementById('modal-icon');
+      const titleEl = document.getElementById('modal-title');
+      const btnNext = document.getElementById('btn-modal-next');
+      const btnClose = document.getElementById('modal-close');
+      
+      titleEl.innerText = title;
+      document.getElementById('modal-message').innerText = message;
+      
+      if (type === 'success') {
+        icon.innerText = '🎉';
+        titleEl.className = 'text-3xl font-black text-emerald-500 mb-4';
+        btnNext.classList.remove('hidden');
+        btnNext.innerText = nextText;
+        btnClose.innerText = '閉じる';
+        btnClose.className = 'bg-slate-100 hover:bg-slate-200 text-slate-500 font-bold py-3 px-8 rounded-full transition w-full text-sm mt-2 border border-slate-200';
+      } else if (type === 'error') {
+        icon.innerText = '💦';
+        titleEl.className = 'text-2xl font-black text-rose-500 mb-4';
+        btnNext.classList.add('hidden');
+        btnClose.innerText = '構造を見直す';
+        btnClose.className = 'bg-slate-800 hover:bg-slate-700 text-white font-bold py-4 px-10 rounded-full shadow-lg transition w-full text-lg';
+      } else {
+        icon.innerText = '🤔';
+        titleEl.className = 'text-2xl font-black text-slate-800 mb-4';
+        btnNext.classList.add('hidden');
+        btnClose.innerText = 'わかった';
+        btnClose.className = 'bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-4 px-10 rounded-full shadow-lg shadow-cyan-500/30 transition w-full text-lg';
+      }
+
+      btnNext.onclick = () => {
+        closeModal();
+        if(onNext) onNext();
+      };
+      
+      modal.classList.remove('hidden');
+      requestAnimationFrame(() => {
+        modal.classList.remove('opacity-0');
+        content.classList.remove('scale-95');
+        content.classList.add('scale-100');
+      });
+    }
+
+    function closeModal() {
+      const modal = document.getElementById('custom-modal');
+      const content = document.getElementById('custom-modal-content');
+      modal.classList.add('opacity-0');
+      content.classList.remove('scale-100');
+      content.classList.add('scale-95');
+      setTimeout(() => { modal.classList.add('hidden'); }, 300);
+    }
+    
+    document.getElementById('modal-close').addEventListener('click', closeModal);
+
+    // ==========================================
+    // 描画関連ユーティリティ
+    // ==========================================
+    function getColor(val) {
+      if (val === 'H') return '#0ea5e9'; // Sky blue
+      if (val === 'OH') return '#fb7185'; // Rose pink
+      if (val === 'CH₂OH') return '#fb923c'; // Orange
+      return '#333';
+    }
+
+    function flipPt(val, doFlip, center) {
+      return doFlip ? (center * 2) - val : val;
+    }
+    
+    function flipPoly(ptsStr, fx, fy) {
+      return ptsStr.split(' ').map(p => {
+        let [x, y] = p.split(',').map(Number);
+        return `${flipPt(x, fx, 250)},${flipPt(y, fy, 200)}`;
+      }).join(' ');
+    }
+
+    // ==========================================
+    // 描画ロジック：単糖ビルダー用
+    // ==========================================
+    function renderMonoBuilder() {
+      const container = document.getElementById('mono-canvas');
+      const baseType = monoData[state.monoTarget].base;
+      const posArr = baseType === 'pyranose' ? pyranosePos : furanosePos;
+      const pts = baseType === 'pyranose' ? pyranosePts : furanosePts;
+      const O = baseType === 'pyranose' ? pyranoseO : furanoseO;
+      const names = monoData[state.monoTarget].names;
+
+      let svg = `<svg width="100%" height="100%" viewBox="0 0 500 400">`;
+      
+      // 骨格
+      svg += `<polygon points="${pts}" fill="none" stroke="#94a3b8" stroke-width="8" stroke-linejoin="round"/>`;
+      
+      // 酸素原子 (O)
+      svg += `<circle cx="${O.x}" cy="${O.y}" r="22" fill="#f8fafc"/>`;
+      svg += `<text x="${O.x}" y="${O.y}" font-size="28" font-weight="900" font-family="Nunito" fill="#64748b" text-anchor="middle" dominant-baseline="central">O</text>`;
+
+      // スロット描画
+      posArr.forEach(p => {
+        svg += `<line x1="${p.x}" y1="${p.y}" x2="${p.x}" y2="${p.ty}" stroke="#cbd5e1" stroke-width="5"/>`;
+        svg += `<line x1="${p.x}" y1="${p.y}" x2="${p.x}" y2="${p.by}" stroke="#cbd5e1" stroke-width="5"/>`;
+        
+        if (names[p.id]) {
+          svg += `<text x="${p.lx}" y="${p.ly}" class="carbon-label" text-anchor="middle" dominant-baseline="central">${names[p.id]}</text>`;
+        }
+
+        const tId = p.id + 't';
+        const tVal = state.monoSlots[tId];
+        svg += `<circle cx="${p.x}" cy="${p.ty}" r="28" class="slot-hitbox" data-slot="${tId}" />`;
+        if (tVal) {
+          svg += `<text x="${p.x}" y="${p.ty}" fill="${getColor(tVal)}" class="part-text" text-anchor="middle" dominant-baseline="central">${tVal}</text>`;
+        } else {
+          svg += `<circle cx="${p.x}" cy="${p.ty}" r="16" fill="none" stroke="#cbd5e1" stroke-width="3" stroke-dasharray="6" pointer-events="none" />`;
+        }
+
+        const bId = p.id + 'b';
+        const bVal = state.monoSlots[bId];
+        svg += `<circle cx="${p.x}" cy="${p.by}" r="28" class="slot-hitbox" data-slot="${bId}" />`;
+        if (bVal) {
+          svg += `<text x="${p.x}" y="${p.by}" fill="${getColor(bVal)}" class="part-text" text-anchor="middle" dominant-baseline="central">${bVal}</text>`;
+        } else {
+          svg += `<circle cx="${p.x}" cy="${p.by}" r="16" fill="none" stroke="#cbd5e1" stroke-width="3" stroke-dasharray="6" pointer-events="none" />`;
+        }
+      });
+      svg += `</svg>`;
+      container.innerHTML = svg;
+    }
+
+    // ==========================================
+    // 描画ロジック：二糖完成図用
+    // ==========================================
+    function generateFilledSVG(monoKey, fx = false, fy = false, hideSlot = null) {
+      if (!monoKey) return `<svg width="100%" height="100%" viewBox="0 0 500 400"><text x="250" y="200" font-size="18" text-anchor="middle" fill="#94a3b8" font-weight="bold">（未選択）</text></svg>`;
+      
+      const d = monoData[monoKey];
+      const ans = d.ans;
+      const isPyr = d.base === 'pyranose';
+      const posArr = isPyr ? pyranosePos : furanosePos;
+      const pts = isPyr ? pyranosePts : furanosePts;
+      const O = isPyr ? pyranoseO : furanoseO;
+
+      let svg = `<svg width="100%" height="100%" viewBox="0 0 500 400">`;
+      
+      svg += `<polygon points="${flipPoly(pts, fx, fy)}" fill="none" stroke="#64748b" stroke-width="6" stroke-linejoin="round"/>`;
+      
+      const ox = flipPt(O.x, fx, 250);
+      const oy = flipPt(O.y, fy, 200);
+      svg += `<circle cx="${ox}" cy="${oy}" r="22" fill="#f8fafc"/>`;
+      svg += `<text x="${ox}" y="${oy}" font-size="26" font-weight="900" font-family="Nunito" fill="#475569" text-anchor="middle" dominant-baseline="central">O</text>`;
+      
+      posArr.forEach(p => {
+        let cx = flipPt(p.x, fx, 250), cy = flipPt(p.y, fy, 200);
+        let tx = cx, ty = flipPt(p.ty, fy, 200);
+        let bx = cx, by = flipPt(p.by, fy, 200);
+
+        const isHideT = (p.id + 't' === hideSlot);
+        const isHideB = (p.id + 'b' === hideSlot);
+
+        svg += `<line x1="${cx}" y1="${cy}" x2="${tx}" y2="${ty}" stroke="#94a3b8" stroke-width="4"/>`;
+        svg += `<line x1="${cx}" y1="${cy}" x2="${bx}" y2="${by}" stroke="#94a3b8" stroke-width="4"/>`;
+
+        const tVal = isHideT ? null : ans[p.id + 't'];
+        const bVal = isHideB ? null : ans[p.id + 'b'];
+        
+        if (tVal) svg += `<text x="${tx}" y="${ty}" font-weight="900" font-family="Nunito" font-size="28" fill="${getColor(tVal)}" text-anchor="middle" dominant-baseline="central" style="text-shadow: 0 2px 4px rgba(0,0,0,0.05);">${tVal}</text>`;
+        if (bVal) svg += `<text x="${bx}" y="${by}" font-weight="900" font-family="Nunito" font-size="28" fill="${getColor(bVal)}" text-anchor="middle" dominant-baseline="central" style="text-shadow: 0 2px 4px rgba(0,0,0,0.05);">${bVal}</text>`;
+      });
+      svg += `</svg>`;
+      return svg;
+    }
+
+    function renderDiMode(hideBindL = null, hideBindR = null) {
+      document.getElementById('di-left-canvas').innerHTML = generateFilledSVG(state.diLeft, false, false, hideBindL);
+      document.getElementById('di-right-canvas').innerHTML = generateFilledSVG(state.diRight, state.diFx, state.diFy, hideBindR);
+    }
+
+    // ==========================================
+    // イベント設定と検証ロジック
+    // ==========================================
+    document.addEventListener('DOMContentLoaded', () => {
+      
+      const tabMono = document.getElementById('tab-mono');
+      const tabDi = document.getElementById('tab-di');
+      const modeMono = document.getElementById('mode-mono');
+      const modeDi = document.getElementById('mode-di');
+
+      tabMono.addEventListener('click', () => {
+        modeMono.classList.remove('hidden');
+        modeDi.classList.add('hidden');
+        tabMono.className = "px-6 py-3 md:px-12 md:py-4 bg-white shadow-[0_-4px_10px_rgba(0,0,0,0.03)] rounded-t-2xl font-black border-t-4 border-cyan-400 text-cyan-600 mr-2 transition-all relative z-20";
+        tabDi.className = "px-6 py-3 md:px-12 md:py-4 bg-slate-200/60 rounded-t-2xl font-bold border-t-4 border-transparent text-slate-500 hover:bg-slate-100 hover:text-cyan-500 transition-all";
+      });
+      tabDi.addEventListener('click', () => {
+        modeDi.classList.remove('hidden');
+        modeMono.classList.add('hidden');
+        tabDi.className = "px-6 py-3 md:px-12 md:py-4 bg-white shadow-[0_-4px_10px_rgba(0,0,0,0.03)] rounded-t-2xl font-black border-t-4 border-cyan-400 text-cyan-600 transition-all relative z-20";
+        tabMono.className = "px-6 py-3 md:px-12 md:py-4 bg-slate-200/60 rounded-t-2xl font-bold border-t-4 border-transparent text-slate-500 hover:bg-slate-100 hover:text-cyan-500 transition-all mr-2";
+      });
+
+      document.querySelectorAll('.tool-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active', 'text-cyan-600'));
+          e.currentTarget.classList.add('active');
+          state.currentTool = e.currentTarget.dataset.tool;
+        });
+
+        // ドラッグ＆ドロップ用のイベント設定
+        btn.setAttribute('draggable', 'true');
+        btn.addEventListener('dragstart', (e) => {
+          e.dataTransfer.setData('text/plain', e.currentTarget.dataset.tool);
+          e.dataTransfer.effectAllowed = 'copy';
+          
+          // ドラッグ時もボタンをアクティブにする
+          document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active', 'text-cyan-600'));
+          e.currentTarget.classList.add('active');
+          state.currentTool = e.currentTarget.dataset.tool;
+        });
+      });
+
+      document.getElementById('mono-select').addEventListener('change', (e) => {
+        state.monoTarget = e.target.value;
+        state.monoSlots = {};
+        renderMonoBuilder();
+      });
+
+      const monoCanvas = document.getElementById('mono-canvas');
+      monoCanvas.addEventListener('click', (e) => {
+        const slotEl = e.target.closest('.slot-hitbox');
+        if (slotEl) {
+          const slotId = slotEl.dataset.slot;
+          if (state.currentTool === 'CLEAR') {
+            delete state.monoSlots[slotId];
+          } else {
+            state.monoSlots[slotId] = state.currentTool;
+          }
+          renderMonoBuilder();
+        }
+      });
+
+      // キャンバス側のドラッグ＆ドロップ受け入れ処理
+      monoCanvas.addEventListener('dragover', (e) => {
+        e.preventDefault(); // ドロップを許可
+        e.dataTransfer.dropEffect = 'copy';
+        const slotEl = e.target.closest('.slot-hitbox');
+        if (slotEl) {
+          slotEl.style.fill = 'rgba(56, 189, 248, 0.25)'; // ホバーより少し濃くハイライト
+        }
+      });
+
+      monoCanvas.addEventListener('dragleave', (e) => {
+        const slotEl = e.target.closest('.slot-hitbox');
+        if (slotEl) {
+          slotEl.style.fill = ''; // ハイライト解除
+        }
+      });
+
+      monoCanvas.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const slotEl = e.target.closest('.slot-hitbox');
+        if (slotEl) {
+          slotEl.style.fill = ''; // ハイライト解除
+          const tool = e.dataTransfer.getData('text/plain');
+          const slotId = slotEl.dataset.slot;
+          if (tool === 'CLEAR') {
+            delete state.monoSlots[slotId];
+          } else {
+            state.monoSlots[slotId] = tool;
+          }
+          renderMonoBuilder();
+        }
+      });
+
+      function goToNextMonoMission() {
+        const keys = Object.keys(monoData);
+        let next = keys[Math.floor(Math.random() * keys.length)];
+        if(next === state.monoTarget) next = keys[(keys.indexOf(next)+1)%keys.length];
+        state.monoTarget = next;
+        document.getElementById('mono-select').value = next;
+        state.monoSlots = {};
+        renderMonoBuilder();
+      }
+
+      document.getElementById('btn-mono-check').addEventListener('click', () => {
+        const data = monoData[state.monoTarget];
+        const ans = data.ans;
+        const names = data.names;
+        
+        let firstError = null;
+        for (let key in ans) {
+          if (state.monoSlots[key] !== ans[key]) {
+            const posId = key.substring(0, 2);
+            firstError = !state.monoSlots[key] 
+              ? `${names[posId]} の ${key.endsWith('t') ? '上' : '下'} が空欄だぞ！`
+              : `${names[posId]} の上下の構造が間違っているようだ。よく確認しよう！`;
+            break; 
+          }
+        }
+        
+        if (!firstError) {
+          for (let key in state.monoSlots) {
+            if (state.monoSlots[key] && !ans[key]) {
+              firstError = `${names[key.substring(0, 2)] || "どこか"} に余分なパーツが置かれているぞ！`;
+              break;
+            }
+          }
+        }
+
+        if (firstError) {
+          showMessage('不正解...', firstError, 'error');
+        } else {
+          showMessage('大正解！', '完璧だ！この構造式のマイスターだな！', 'success', goToNextMonoMission, '次のお題へ');
+        }
+      });
+
+      document.getElementById('di-select').addEventListener('change', (e) => {
+        state.diMission = e.target.value;
+        resetDi();
+      });
+      document.getElementById('di-left').addEventListener('change', (e) => {
+        state.diLeft = e.target.value;
+        renderDiMode();
+      });
+      document.getElementById('di-right').addEventListener('change', (e) => {
+        state.diRight = e.target.value;
+        renderDiMode();
+      });
+      document.getElementById('btn-flipx').addEventListener('click', () => {
+        state.diFx = !state.diFx;
+        renderDiMode();
+      });
+      document.getElementById('btn-flipy').addEventListener('click', () => {
+        state.diFy = !state.diFy;
+        renderDiMode();
+      });
+
+      document.getElementById('btn-dock').addEventListener('click', () => {
+        if(state.isDocked) return;
+        
+        const m = diMissions[state.diMission];
+        if (state.diLeft === m.reqLeft && 
+            m.reqRight.includes(state.diRight) && 
+            state.diFx === m.reqFx && 
+            state.diFy === m.reqFy) {
+          playDockAnimation(m);
+        } else {
+          showMessage('結合失敗', '糖の組み合わせか、回転の向きが違うみたいだ。\n\n【ヒント】\n結合させたい炭素同士（OH）が向かい合うように回転させるのがコツだ！', 'hint');
+        }
+      });
+
+      function resetDi() {
+        state.isDocked = false;
+        state.diFx = false;
+        state.diFy = false;
+        
+        document.querySelectorAll('.di-ui-control').forEach(el => {
+          el.classList.remove('opacity-0', 'pointer-events-none');
+        });
+        document.getElementById('di-reset-area').classList.add('hidden');
+
+        document.getElementById('di-left-canvas').classList.remove('dock-left');
+        document.getElementById('di-right-canvas').classList.remove('dock-right');
+        document.getElementById('dock-anim-layer').innerHTML = '';
+        renderDiMode();
+      }
+
+      function showCompletedView() {
+        const selectEl = document.getElementById('di-select');
+        const missionName = selectEl.options[selectEl.selectedIndex].text;
+        document.getElementById('di-completed-name').innerText = `${missionName} 完成！`;
+        document.getElementById('di-reset-area').classList.remove('hidden');
+      }
+
+      function playDockAnimation(m) {
+        state.isDocked = true;
+        const leftC = document.getElementById('di-left-canvas');
+        const rightC = document.getElementById('di-right-canvas');
+        const layer = document.getElementById('dock-anim-layer');
+        
+        document.querySelectorAll('.di-ui-control').forEach(el => {
+          el.classList.add('opacity-0', 'pointer-events-none');
+        });
+
+        renderDiMode(m.bindL, m.bindR);
+
+        leftC.classList.add('dock-left');
+        rightC.classList.add('dock-right');
+        
+        layer.innerHTML = `
+          <div class="water-drop" id="anim-h2o" style="top: ${m.bridgeY}; transform: translateY(-50%);">H₂O</div>
+          <div class="oxygen-bridge" id="anim-o" style="top: ${m.bridgeY}; transform: translateY(-50%);">O</div>
+        `;
+        
+        requestAnimationFrame(() => {
+          document.getElementById('anim-h2o').classList.add('animate');
+          document.getElementById('anim-o').classList.add('animate');
+        });
+
+        setTimeout(() => {
+          showMessage('結合成功！', m.msg, 'success', showCompletedView, '完成した構造を見る');
+        }, 1800);
+      }
+      
+      document.getElementById('btn-di-reset').addEventListener('click', resetDi);
+
+      renderMonoBuilder();
+      renderDiMode();
+    });
+  </script>
+</body>
+</html>
